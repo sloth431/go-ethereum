@@ -58,6 +58,8 @@ var (
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
 	MainnetChainConfig = &ChainConfig{
 		ChainID:             big.NewInt(1),
+		ChainIDDol:          big.NewInt(8),
+		DolphinBlock:        big.NewInt(15_330_000),
 		HomesteadBlock:      big.NewInt(1_150_000),
 		DAOForkBlock:        big.NewInt(1_920_000),
 		DAOForkSupport:      true,
@@ -265,16 +267,16 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(EthashConfig), nil}
+	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(EthashConfig), nil}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, false, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, false, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(EthashConfig), nil}
+	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(1337), big.NewInt(0), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(EthashConfig), nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int), false)
 )
 
@@ -343,6 +345,8 @@ type CheckpointOracleConfig struct {
 type ChainConfig struct {
 	ChainID *big.Int `json:"chainId"` // chainId identifies the current chain and is used for replay protection
 
+	ChainIDDol     *big.Int `json:"chainId"`                  // chainId identifies the current chain and is used for replay protection
+	DolphinBlock   *big.Int `json:"dolphinBlock,omitempty"`   // Cancun switch block (nil = no fork, 0 = already on cancun)
 	HomesteadBlock *big.Int `json:"homesteadBlock,omitempty"` // Homestead switch block (nil = no fork, 0 = already homestead)
 
 	DAOForkBlock   *big.Int `json:"daoForkBlock,omitempty"`   // TheDAO hard-fork switch block (nil = no fork)
@@ -465,6 +469,9 @@ func (c *ChainConfig) String() string {
 	if c.CancunBlock != nil {
 		banner += fmt.Sprintf(" - Cancun:                      %-8v\n", c.CancunBlock)
 	}
+	if c.DolphinBlock != nil {
+		banner += fmt.Sprintf(" - Dolphin:                      %-8v\n", c.DolphinBlock)
+	}
 	banner += "\n"
 
 	// Add a special section for the merge as it's non-obvious
@@ -479,6 +486,12 @@ func (c *ChainConfig) String() string {
 		banner += fmt.Sprintf(" - Merge netsplit block:       %-8v", c.MergeNetsplitBlock)
 	}
 	return banner
+}
+
+func (c *ChainConfig) ReChainId(num *big.Int) {
+	if c.IsDolphin(num) {
+		c.ChainID = c.ChainIDDol
+	}
 }
 
 // IsHomestead returns whether num is either equal to the homestead block or greater.
@@ -571,6 +584,10 @@ func (c *ChainConfig) IsCancun(num *big.Int) bool {
 	return isForked(c.CancunBlock, num)
 }
 
+func (c *ChainConfig) IsDolphin(num *big.Int) bool {
+	return isForked(c.DolphinBlock, num)
+}
+
 // CheckCompatible checks whether scheduled fork transitions have been imported
 // with a mismatching chain configuration.
 func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *ConfigCompatError {
@@ -599,6 +616,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 	}
 	var lastFork fork
 	for _, cur := range []fork{
+		{name: "dolphinBlock", block: c.DolphinBlock, optional: true},
 		{name: "homesteadBlock", block: c.HomesteadBlock},
 		{name: "daoForkBlock", block: c.DAOForkBlock, optional: true},
 		{name: "eip150Block", block: c.EIP150Block},
@@ -700,6 +718,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.CancunBlock, newcfg.CancunBlock, head) {
 		return newCompatError("Cancun fork block", c.CancunBlock, newcfg.CancunBlock)
 	}
+	if isForkIncompatible(c.DolphinBlock, newcfg.DolphinBlock, head) {
+		return newCompatError("Dolphin fork block", c.DolphinBlock, newcfg.DolphinBlock)
+	}
 	return nil
 }
 
@@ -768,7 +789,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon                                      bool
-	IsMerge, IsShanghai, isCancun                           bool
+	IsMerge, IsShanghai, isCancun, IsDolphin                bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -792,5 +813,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
 		IsMerge:          isMerge,
 		IsShanghai:       c.IsShanghai(num),
 		isCancun:         c.IsCancun(num),
+		IsDolphin:        c.IsDolphin(num),
 	}
 }
